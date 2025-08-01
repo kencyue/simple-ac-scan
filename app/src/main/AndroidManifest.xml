@@ -1,18 +1,17 @@
-// Top-level build file where you can add configuration options common to all sub-projects/modules.
-buildscript {
-    repositories {
-        google()
-        mavenCentral()
-    }
-    dependencies {
-        classpath "com.android.tools.build:gradle:8.1.0"
-        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.10"
-    }
-}
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.example.simpleacscan">
 
-allprojects {
-    repositories {
-        google()
-        mavenCentral()
-    }
-}
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:label="AC Scan"
+        android:exported="true">
+        <activity android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
