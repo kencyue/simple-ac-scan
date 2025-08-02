@@ -2,11 +2,14 @@ package com.example.simpleacscan
 
 import android.os.Bundle
 import android.text.SpannableString
+import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.TextPaint
 import android.text.method.LinkMovementMethod
 import android.text.style.ClickableSpan
 import android.text.style.ForegroundColorSpan
+import android.text.style.LeadingMarginSpan
+import android.text.style.StyleSpan
 import android.util.Log
 import android.view.View
 import android.widget.TextView
@@ -94,61 +97,69 @@ class MainActivity : ComponentActivity() {
                 try {
                     if (isPortOpen(ip, port, timeoutMillis)) {
                         val info = fetchDeviceInfo(ip)
-                        // build colored entry
-                        val entryBuilder = android.text.SpannableStringBuilder()
+                        val entryBuilder = SpannableStringBuilder()
+                        val brightBlue = Color.parseColor("#00BFFF")
 
-                        // header: === ip ===
-                        entryBuilder.apply {
-                            append(SpannableString("=== ").also { s ->
-                                s.setSpan(ForegroundColorSpan(Color.CYAN), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                            })
-                            append(createHyperlink(ip, "http://$ip:$port$resource"))
-                            append(SpannableString(" ===\n").also { s ->
-                                s.setSpan(ForegroundColorSpan(Color.CYAN), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                            })
-
-                            // modelName
-                            append(SpannableString("  modelName: ").also { s ->
-                                s.setSpan(ForegroundColorSpan(Color.LTGRAY), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                            })
-                            append(SpannableString("${info["modelName"]}\n").also { s ->
-                                s.setSpan(ForegroundColorSpan(Color.WHITE), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                            })
-
-                            // modelNumber
-                            append(SpannableString("  modelNumber: ").also { s ->
-                                s.setSpan(ForegroundColorSpan(Color.LTGRAY), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                            })
-                            append(SpannableString("${info["modelNumber"]}\n").also { s ->
-                                s.setSpan(ForegroundColorSpan(Color.WHITE), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                            })
-
-                            // modelDescription
-                            append(SpannableString("  modelDescription: ").also { s ->
-                                s.setSpan(ForegroundColorSpan(Color.LTGRAY), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                            })
-                            append(SpannableString("${info["modelDescription"]}\n").also { s ->
-                                s.setSpan(ForegroundColorSpan(Color.WHITE), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                            })
-
-                            // UDN
-                            append(SpannableString("  UDN: ").also { s ->
-                                s.setSpan(ForegroundColorSpan(Color.LTGRAY), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                            })
-                            append(SpannableString("${info["UDN"]}\n").also { s ->
-                                s.setSpan(ForegroundColorSpan(Color.WHITE), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                            })
-
-                            if (info.containsKey("error")) {
-                                append(SpannableString("  Error: ").also { s ->
-                                    s.setSpan(ForegroundColorSpan(Color.RED), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                                })
-                                append(SpannableString("${info["error"]}\n").also { s ->
-                                    s.setSpan(ForegroundColorSpan(Color.WHITE), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                                })
-                            }
-                            append("\n")
+                        // header: === ip === (粗體亮藍)
+                        val left = SpannableString("=== ").also { s ->
+                            s.setSpan(ForegroundColorSpan(brightBlue), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                            s.setSpan(StyleSpan(android.graphics.Typeface.BOLD), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                         }
+                        entryBuilder.append(left)
+                        entryBuilder.append(createHeaderHyperlink(ip, "http://$ip:$port$resource"))
+                        val right = SpannableString(" ===\n").also { s ->
+                            s.setSpan(ForegroundColorSpan(brightBlue), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                            s.setSpan(StyleSpan(android.graphics.Typeface.BOLD), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        }
+                        entryBuilder.append(right)
+
+                        // modelName
+                        entryBuilder.append(SpannableString("  modelName: ").also { s ->
+                            s.setSpan(ForegroundColorSpan(Color.LTGRAY), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        })
+                        entryBuilder.append(SpannableString("${info["modelName"]}\n").also { s ->
+                            s.setSpan(ForegroundColorSpan(Color.WHITE), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        })
+
+                        // modelNumber
+                        entryBuilder.append(SpannableString("  modelNumber: ").also { s ->
+                            s.setSpan(ForegroundColorSpan(Color.LTGRAY), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        })
+                        entryBuilder.append(SpannableString("${info["modelNumber"]}\n").also { s ->
+                            s.setSpan(ForegroundColorSpan(Color.WHITE), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        })
+
+                        // modelDescription：長度過長換行後對齊（hanging indent）
+                        val prefixDesc = "  modelDescription: "
+                        val descValue = info["modelDescription"] ?: "-"
+                        val combined = prefixDesc + descValue + "\n"
+                        val descSp = SpannableStringBuilder(combined)
+                        // prefix 樣式
+                        descSp.setSpan(ForegroundColorSpan(Color.LTGRAY), 0, prefixDesc.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        // value 樣式（去掉末尾換行）
+                        descSp.setSpan(ForegroundColorSpan(Color.WHITE), prefixDesc.length, combined.length - 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        // hanging indent：後續換行對齊 value 開始
+                        val prefixWidth = runCatching { outputTv.paint.measureText(prefixDesc).toInt() }.getOrDefault(0)
+                        descSp.setSpan(LeadingMarginSpan.Standard(0, prefixWidth), 0, descSp.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        entryBuilder.append(descSp)
+
+                        // UDN
+                        entryBuilder.append(SpannableString("  UDN: ").also { s ->
+                            s.setSpan(ForegroundColorSpan(Color.LTGRAY), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        })
+                        entryBuilder.append(SpannableString("${info["UDN"]}\n").also { s ->
+                            s.setSpan(ForegroundColorSpan(Color.WHITE), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        })
+
+                        if (info.containsKey("error")) {
+                            entryBuilder.append(SpannableString("  Error: ").also { s ->
+                                s.setSpan(ForegroundColorSpan(Color.RED), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                            })
+                            entryBuilder.append(SpannableString("${info["error"]}\n").also { s ->
+                                s.setSpan(ForegroundColorSpan(Color.WHITE), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                            })
+                        }
+                        entryBuilder.append("\n")
 
                         append(entryBuilder)
                         synchronized(results) { results.add(ip) }
@@ -282,7 +293,6 @@ class MainActivity : ComponentActivity() {
         return result
     }
 
-    // overload for generic colored / styled append
     private fun append(text: CharSequence) {
         Log.i(TAG, text.toString())
         runOnUiThread {
@@ -314,6 +324,30 @@ class MainActivity : ComponentActivity() {
                 ds.color = Color.parseColor("#4EA5FF")
             }
         }, 0, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        return spannable
+    }
+
+    private fun createHeaderHyperlink(text: String, url: String): SpannableString {
+        val spannable = SpannableString(text)
+        spannable.setSpan(object : ClickableSpan() {
+            override fun onClick(widget: View) {
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                    widget.context.startActivity(intent)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to open URL $url: ${e.message}")
+                }
+            }
+
+            override fun updateDrawState(ds: TextPaint) {
+                super.updateDrawState(ds)
+                ds.isUnderlineText = true
+                ds.color = Color.parseColor("#00BFFF") // 亮藍
+                ds.typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+            }
+        }, 0, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        // 也加粗字體本身（部分系統可能不從 updateDrawState fully apply）
+        spannable.setSpan(StyleSpan(android.graphics.Typeface.BOLD), 0, spannable.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         return spannable
     }
 
