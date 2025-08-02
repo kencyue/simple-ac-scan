@@ -10,6 +10,12 @@
         android:icon="@mipmap/ic_launcher"
         android:networkSecurityConfig="@xml/network_security_config"
         android:exported="true">
+        
+        <!-- 設計者資訊 -->
+        <meta-data android:name="designer_name" android:value="ken cyue"/>
+        <meta-data android:name="designer_contact" android:value="jingsyuan@protonmail.com"/>
+        <meta-data android:name="build_date" android:value="2025-08-02"/>
+
         <activity
             android:name=".MainActivity"
             android:exported="true">
