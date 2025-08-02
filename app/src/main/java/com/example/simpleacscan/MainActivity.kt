@@ -1,143 +1,175 @@
-package com.example.simpleacscan
+package com.example.acscan
 
 import android.os.Bundle
-import android.util.Log
+import android.widget.Button
 import android.widget.TextView
-import androidx.activity.ComponentActivity
+import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.*
-import java.io.BufferedReader
-import java.net.*
-import java.util.concurrent.Semaphore
-import java.util.regex.Pattern
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import org.w3c.dom.Document
+import java.io.StringReader
+import java.net.InetSocketAddress
+import java.net.Socket
+import javax.xml.parsers.DocumentBuilderFactory
+import org.xml.sax.InputSource
 
-class MainActivity : ComponentActivity() {
-    private val TAG = "ACScan"
-    private lateinit var outputTv: TextView
+data class DeviceInfo(
+    val modelName: String,
+    val modelNumber: String,
+    val modelDescription: String,
+    val UDN: String,
+    val raw: String,
+    val error: String?
+)
+
+class MainActivity : AppCompatActivity() {
+
+    private lateinit var outputText: TextView
     private val port = 57223
-    private val resource = "/device.xml"
-    private val timeoutMillis = 500
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        outputTv = TextView(this)
-        outputTv.setTextIsSelectable(true)
-        outputTv.typeface = android.graphics.Typeface.MONOSPACE
-        outputTv.textSize = 12f
-        setContentView(outputTv)
+        setContentView(R.layout.activity_main)
 
-        CoroutineScope(Dispatchers.IO).launch {
-            val base = getLocalBaseIpPrefix()
-            if (base == null) {
-                append("找不到可用內網 IP\n")
-                return@launch
+        outputText = findViewById(R.id.outputText)
+        val scanBtn = findViewById<Button>(R.id.scanBtn)
+        val rescanBtn = findViewById<Button>(R.id.rescanBtn)
+
+        val baseIp = getLocalBaseIp()
+
+        scanBtn.setOnClickListener {
+            startScan(baseIp, port)
+        }
+        rescanBtn.setOnClickListener {
+            startScan(baseIp, port)
+        }
+
+        // 初次自動掃一次（可選）
+        startScan(baseIp, port)
+    }
+
+    private fun startScan(baseIp: String, port: Int) {
+        outputText.text = "掃描 $baseIp.1-254，port $port...\n"
+        lifecycleScope.launch(Dispatchers.IO) {
+            val liveResults = StringBuilder()
+            val devices = scanNetwork(baseIp, port)
+            if (devices.isEmpty()) {
+                liveResults.append("沒有找到開啟該端口的設備。\n")
+            } else {
+                for (ip in devices) {
+                    val info = fetchDeviceInfo(ip, port, "/device.xml")
+                    liveResults.append("=== $ip ===\n")
+                    liveResults.append("modelName: ${info.modelName}\n")
+                    liveResults.append("modelNumber: ${info.modelNumber}\n")
+                    liveResults.append("modelDescription: ${info.modelDescription}\n")
+                    liveResults.append("UDN: ${info.UDN}\n")
+                    if (info.error != null) {
+                        liveResults.append("error: ${info.error}\n")
+                    }
+                    liveResults.append("\n")
+                    withContext(Dispatchers.Main) {
+                        outputText.text = liveResults.toString()
+                    }
+                }
             }
-            append("掃描 $base.1-254，port $port\n")
-            val found = scanNetwork(base)
-            append("\n完成，找到 ${found.size} 台設備\n")
+            withContext(Dispatchers.Main) {
+                outputText.text = liveResults.toString()
+            }
         }
     }
 
-    private suspend fun scanNetwork(base: String): List<String> {
-        val results = mutableListOf<String>()
-        val sem = Semaphore(100)
+    private suspend fun scanNetwork(baseIp: String, port: Int): List<String> = coroutineScope {
+        val result = mutableListOf<String>()
+        val semaphore = Semaphore(50) // 限制併發不爆掉
         val jobs = (1..254).map { i ->
-            val ip = "$base.$i"
-            CoroutineScope(Dispatchers.IO).async {
-                sem.acquire()
-                try {
-                    if (isPortOpen(ip, port, timeoutMillis)) {
-                        val info = fetchDeviceInfo(ip)
-                        val entry = buildString {
-                            append("=== $ip ===\n")
-                            append("  modelName: ${info["modelName"]}\n")
-                            append("  modelNumber: ${info["modelNumber"]}\n")
-                            append("  modelDescription: ${info["modelDescription"]}\n")
-                            append("  UDN: ${info["UDN"]}\n")
+            launch(Dispatchers.IO) {
+                semaphore.withPermit {
+                    val ip = "$baseIp.$i"
+                    try {
+                        Socket().use { socket ->
+                            socket.connect(InetSocketAddress(ip, port), 200) // 200ms timeout
+                            synchronized(result) { result.add(ip) }
                         }
-                        append(entry)
-                        synchronized(results) { results.add(ip) }
+                    } catch (_: Exception) {
+                        // 連不到就略過
                     }
-                } finally {
-                    sem.release()
                 }
             }
         }
-        jobs.awaitAll()
-        return results
+        jobs.joinAll()
+        result.sorted()
     }
 
-    private fun isPortOpen(ip: String, port: Int, timeoutMs: Int): Boolean {
-        return try {
-            Socket().use { sock ->
-                sock.soTimeout = timeoutMs
-                sock.connect(InetSocketAddress(ip, port), timeoutMs)
-                true
-            }
-        } catch (_: Exception) {
-            false
-        }
-    }
+    private suspend fun fetchDeviceInfo(ip: String, port: Int, resource: String): DeviceInfo {
+        val url = "http://$ip:$port$resource"
+        val fields = listOf("modelName", "modelNumber", "modelDescription", "UDN")
+        val result = mutableMapOf<String, String>().withDefault { "-" }
+        var raw = ""
+        var error: String? = null
 
-    private fun fetchDeviceInfo(ip: String): Map<String, String> {
-        val result = mutableMapOf(
-            "modelName" to "-",
-            "modelNumber" to "-",
-            "modelDescription" to "-",
-            "UDN" to "-"
-        )
         try {
-            val url = URL("http://$ip:$port$resource")
-            val conn = url.openConnection() as HttpURLConnection
-            conn.connectTimeout = 800
-            conn.readTimeout = 800
+            val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 1000
+            conn.readTimeout = 1000
             conn.requestMethod = "GET"
-            conn.connect()
-            if (conn.responseCode == 200) {
-                val body = conn.inputStream.bufferedReader().use(BufferedReader::readText)
-                fun extract(tag: String): String {
-                    val p = Pattern.compile("<$tag>(.*?)</$tag>", Pattern.DOTALL)
-                    val m = p.matcher(body)
-                    return if (m.find()) m.group(1).trim() else "-"
+            conn.setRequestProperty("User-Agent", "ACScan/1.0")
+            val code = conn.responseCode
+            raw = conn.inputStream.bufferedReader().use { it.readText() }
+
+            try {
+                val factory = DocumentBuilderFactory.newInstance()
+                factory.isNamespaceAware = true
+                val builder = factory.newDocumentBuilder()
+                val doc: Document = builder.parse(InputSource(StringReader(raw)))
+                for (field in fields) {
+                    val nodes = doc.getElementsByTagName(field)
+                    if (nodes.length > 0) {
+                        val text = nodes.item(0).textContent.trim()
+                        result[field] = text
+                    }
                 }
-                result["modelName"] = extract("modelName")
-                result["modelNumber"] = extract("modelNumber")
-                result["modelDescription"] = extract("modelDescription")
-                result["UDN"] = extract("UDN")
+            } catch (e: Exception) {
+                // fallback 用 regex
+                for (field in fields) {
+                    val regex = Regex("<$field>(.*?)</$field>", RegexOption.DOT_MATCHES_ALL)
+                    regex.find(raw)?.groups?.get(1)?.let {
+                        result[field] = it.value.trim()
+                    }
+                }
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            error = e.toString()
         }
-        return result
+
+        return DeviceInfo(
+            result.getValue("modelName"),
+            result.getValue("modelNumber"),
+            result.getValue("modelDescription"),
+            result.getValue("UDN"),
+            raw,
+            error
+        )
     }
 
-    private fun append(text: String) {
-        Log.i(TAG, text)
-        runOnUiThread {
-            outputTv.append(text)
-        }
-    }
-
-    private fun getLocalBaseIpPrefix(): String? {
+    private fun getLocalBaseIp(): String {
         try {
-            val interfaces = NetworkInterface.getNetworkInterfaces()
-            while (interfaces.hasMoreElements()) {
-                val nif = interfaces.nextElement()
-                if (!nif.isUp || nif.isLoopback) continue
-                val addrs = nif.inetAddresses
-                while (addrs.hasMoreElements()) {
-                    val addr = addrs.nextElement()
-                    if (addr is Inet4Address && !addr.isLoopbackAddress) {
-                        val ip = addr.hostAddress
-                        if (ip.startsWith("10.") || ip.startsWith("192.168.") ||
-                            (ip.startsWith("172.") && ip.split(".")[1].toIntOrNull() in 16..31)) {
-                            val parts = ip.split(".")
-                            if (parts.size >= 3) {
-                                return "${parts[0]}.${parts[1]}.${parts[2]}"
-                            }
+            val interfaces = java.net.NetworkInterface.getNetworkInterfaces()
+            for (iface in interfaces) {
+                if (!iface.isUp || iface.isLoopback) continue
+                for (addr in iface.inetAddresses) {
+                    if (addr is java.net.Inet4Address && !addr.isLoopbackAddress) {
+                        val ip = addr.hostAddress // e.g., "192.168.31.56"
+                        val parts = ip.split(".")
+                        if (parts.size == 4) {
+                            return "${parts[0]}.${parts[1]}.${parts[2]}"
                         }
                     }
                 }
             }
-        } catch (_: Exception) {}
-        return null
+        } catch (_: Exception) {
+        }
+        return "192.168.1" // 預設 fallback
     }
 }
