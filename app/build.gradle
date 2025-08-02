@@ -4,16 +4,26 @@ plugins {
 }
 
 android {
-    namespace 'com.example.simpleacscan'
-    compileSdk 34
+    namespace 'com.example.acscan'
+    compileSdk 33
 
     defaultConfig {
-        applicationId "com.example.simpleacscan"
+        applicationId "com.example.acscan"
         minSdk 21
-        targetSdk 34
+        targetSdk 33
         versionCode 1
         versionName "1.0"
     }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix ".debug"
+        }
+        release {
+            isMinifyEnabled = false
+        }
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
@@ -28,6 +38,4 @@ dependencies {
     implementation "androidx.appcompat:appcompat:1.7.0"
     implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.6.1"
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
-    // 其他你原本的依賴
 }
-
