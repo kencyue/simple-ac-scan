@@ -30,7 +30,7 @@ class MainActivity : ComponentActivity() {
         setContentView(outputTv)
 
         CoroutineScope(Dispatchers.IO).launch {
-            // 測試單一 IP（可切換回完整掃描）
+            // 測試單一 IP
             val ip = "192.168.31.156" // 聚焦已知設備
             append("測試單一 IP: $ip，port $port\n")
             if (isPortOpen(ip, port, timeoutMillis)) {
@@ -142,16 +142,19 @@ class MainActivity : ComponentActivity() {
                 Log.d(TAG, "Device nodes found for $ip: ${deviceNodeList.length}")
                 if (deviceNodeList.length > 0) {
                     val deviceNode = deviceNodeList.item(0)
-                    // 記錄 <device> 節點的子標籤
-                    val deviceTags = mutableSetOf<String>()
+                    // 記錄 <device> 節點的子標籤和值
+                    val deviceTags = mutableMapOf<String, String>()
                     val childNodes = deviceNode.childNodes
                     for (i in 0 until childNodes.length) {
                         val child = childNodes.item(i)
                         if (child.nodeType == Node.ELEMENT_NODE) {
-                            deviceTags.add(child.nodeName)
+                            val tagName = child.nodeName
+                            val tagValue = child.textContent?.trim() ?: ""
+                            deviceTags[tagName] = tagValue
+                            Log.d(TAG, "Device tag for $ip: $tagName = $tagValue")
                         }
                     }
-                    Log.d(TAG, "Tags in <device> node for $ip: ${deviceTags.joinToString(", ")}")
+                    Log.d(TAG, "All tags in <device> node for $ip: ${deviceTags.keys.joinToString(", ")}")
 
                     // 提取標籤值
                     fun getTagValue(tag: String): String {
@@ -168,6 +171,12 @@ class MainActivity : ComponentActivity() {
                             val value = nodeList.item(0).textContent?.trim()
                             Log.d(TAG, "Found $tag without namespace for $ip: $value")
                             return value ?: "-"
+                        }
+                        // 從 deviceTags 查找
+                        val value = deviceTags[tag]
+                        if (value != null) {
+                            Log.d(TAG, "Found $tag in deviceTags for $ip: $value")
+                            return value
                         }
                         Log.d(TAG, "Tag $tag not found for $ip")
                         return "-"
