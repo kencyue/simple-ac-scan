@@ -8,8 +8,6 @@ import android.text.Spanned
 import android.text.method.LinkMovementMethod
 import android.text.style.ForegroundColorSpan
 import android.text.style.StyleSpan
-import android.text.style.ClickableSpan
-import android.view.View
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import kotlinx.coroutines.*
@@ -42,8 +40,8 @@ class MainActivity : ComponentActivity() {
         outputTv.typeface = Typeface.MONOSPACE
         outputTv.textSize = 16f
         outputTv.movementMethod = LinkMovementMethod.getInstance()
-        outputTv.setBackgroundColor(Color.BLACK)         // 黑色背景
-        outputTv.setTextColor(Color.WHITE)               // 預設白色字
+        outputTv.setBackgroundColor(Color.BLACK)
+        outputTv.setTextColor(Color.WHITE)
         setContentView(outputTv)
 
         showTipAndScan()
@@ -83,7 +81,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // 支援 emoji 與彩色
     private suspend fun scanNetwork(base: String): List<String> {
         val results = mutableListOf<String>()
         val sem = Semaphore(100)
@@ -94,7 +91,6 @@ class MainActivity : ComponentActivity() {
                 try {
                     if (isPortOpen(ip, port, timeoutMillis)) {
                         val info = fetchDeviceInfo(ip)
-                        // 💻 emoji 綠字顯示 IP
                         val header = makeColoredSpan("💻 $ip", Color.GREEN, bold = true)
                         val details = buildString {
                             append("\n  型號: ${info["modelName"]}\n")
@@ -121,7 +117,6 @@ class MainActivity : ComponentActivity() {
         return results
     }
 
-    // 產生彩色字串，bold 預設 false
     private fun makeColoredSpan(text: String, color: Int, bold: Boolean = false): SpannableString {
         val ss = SpannableString(text)
         ss.setSpan(ForegroundColorSpan(color), 0, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
@@ -146,8 +141,7 @@ class MainActivity : ComponentActivity() {
             "modelName" to "-",
             "modelNumber" to "-",
             "modelDescription" to "-",
-            "UDN" to "-",
-            "status" to "資料已讀取"
+            "UDN" to "-"
         )
         try {
             val url = URL("http://$ip:$port$resource")
@@ -158,14 +152,12 @@ class MainActivity : ComponentActivity() {
             conn.connect()
             val responseCode = conn.responseCode
             if (responseCode != 200) {
-                result["status"] = "無法讀取設備資料"
                 result["error"] = "HTTP $responseCode"
                 return result
             }
 
             val body = conn.inputStream.bufferedReader().use(BufferedReader::readText)
             if (body.isEmpty()) {
-                result["status"] = "無法讀取設備資料"
                 result["error"] = "Empty response"
                 return result
             }
@@ -178,7 +170,6 @@ class MainActivity : ComponentActivity() {
                 doc = builder.parse(InputSource(StringReader(body)))
                 doc.documentElement.normalize()
             } catch (e: Exception) {
-                result["status"] = "無法讀取設備資料"
                 result["error"] = "XML parsing failed: ${e.message}"
                 return result
             }
@@ -204,17 +195,14 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             } else {
-                result["status"] = "無法讀取設備資料"
                 result["error"] = "No <device> node found"
             }
         } catch (e: Exception) {
-            result["status"] = "無法讀取設備資料"
             result["error"] = "Failed to fetch: ${e.message}"
         }
         return result
     }
 
-    // append 可用 String 或 SpannableString
     private fun append(obj: CharSequence) {
         runOnUiThread {
             outputTv.append(obj)
@@ -242,8 +230,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-        } catch (e: Exception) {
-        }
+        } catch (e: Exception) {}
         return null
     }
 }
