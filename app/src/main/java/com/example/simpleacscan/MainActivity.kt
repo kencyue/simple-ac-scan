@@ -37,7 +37,7 @@ class MainActivity : ComponentActivity() {
     private val resource = "/device.xml"
     private val timeoutMillis = 1000
     private var isScanning = false
-    private val scanTip = "請點擊畫面重新掃描\n"
+    private val scanTip = "點擊畫面可重新掃描\n"
     private val scanningTip = "正在掃描，請稍候...\n"
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -84,8 +84,9 @@ class MainActivity : ComponentActivity() {
     private fun endScan() {
         runOnUiThread {
             isScanning = false
-            if (!outputTv.text.toString().contains("請點擊畫面重新掃描")) {
-                append(makeCenteredTip("請點擊畫面重新掃描", Color.LTGRAY))
+            if (!outputTv.text.toString().contains("點擊畫面可重新掃描")) {
+                append("\n") // 上方空一行
+                append(makeCenteredTip("點擊畫面可重新掃描", Color.parseColor("#FFA500"), 1.4f))
             }
         }
     }
@@ -316,7 +317,7 @@ class MainActivity : ComponentActivity() {
         append(spannable)
     }
 
-    private fun makeCenteredTip(text: String, color: Int, sizeMultiplier: Float = 1.2f): SpannableString {
+    private fun makeCenteredTip(text: String, color: Int, sizeMultiplier: Float = 1.4f): SpannableString {
         val content = "($text)"
         val spannable = SpannableString(content + "\n")
         spannable.setSpan(ForegroundColorSpan(color), 0, content.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
