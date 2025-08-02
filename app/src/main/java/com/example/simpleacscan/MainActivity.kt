@@ -8,14 +8,14 @@ import kotlinx.coroutines.*
 import java.io.BufferedReader
 import java.net.*
 import java.util.concurrent.Semaphore
-import java.util.regex.Pattern
+import javax.xml.parsers.DocumentBuilderFactory
 
 class MainActivity : ComponentActivity() {
     private val TAG = "ACScan"
     private lateinit var outputTv: TextView
     private val port = 57223
     private val resource = "/device.xml"
-    private val timeoutMillis = 500
+    private val timeoutMillis = 1000 // 增加超時時間以提高連線穩定性
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -56,7 +56,11 @@ class MainActivity : ComponentActivity() {
                         }
                         append(entry)
                         synchronized(results) { results.add(ip) }
+                    } else {
+                        Log.d(TAG, "Port $port is closed on $ip")
                     }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error scanning $ip: ${e.message}")
                 } finally {
                     sem.release()
                 }
@@ -71,9 +75,11 @@ class MainActivity : ComponentActivity() {
             Socket().use { sock ->
                 sock.soTimeout = timeoutMs
                 sock.connect(InetSocketAddress(ip, port), timeoutMs)
+                Log.d(TAG, "Port $port is open on $ip")
                 true
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(TAG, "Port check failed for $ip:$port: ${e.message}")
             false
         }
     }
@@ -88,23 +94,30 @@ class MainActivity : ComponentActivity() {
         try {
             val url = URL("http://$ip:$port$resource")
             val conn = url.openConnection() as HttpURLConnection
-            conn.connectTimeout = 800
-            conn.readTimeout = 800
+            conn.connectTimeout = 3000 // 增加超時時間
+            conn.readTimeout = 3000
             conn.requestMethod = "GET"
+            Log.d(TAG, "Connecting to $url")
             conn.connect()
-            if (conn.responseCode == 200) {
+            val responseCode = conn.responseCode
+            Log.d(TAG, "Response code for $ip: $responseCode")
+            if (responseCode == 200) {
                 val body = conn.inputStream.bufferedReader().use(BufferedReader::readText)
-                fun extract(tag: String): String {
-                    val p = Pattern.compile("<$tag>(.*?)</$tag>", Pattern.DOTALL)
-                    val m = p.matcher(body)
-                    return if (m.find()) m.group(1).trim() else "-"
-                }
-                result["modelName"] = extract("modelName")
-                result["modelNumber"] = extract("modelNumber")
-                result["modelDescription"] = extract("modelDescription")
-                result["UDN"] = extract("UDN")
+                Log.d(TAG, "Response body for $ip:\n$body")
+                val factory = DocumentBuilderFactory.newInstance()
+                factory.isNamespaceAware = true // 支援命名空間
+                val builder = factory.newDocumentBuilder()
+                val doc = builder.parse(conn.inputStream)
+                result["modelName"] = doc.getElementsByTagName("modelName").item(0)?.textContent?.trim() ?: "-"
+                result["modelNumber"] = doc.getElementsByTagName("modelNumber").item(0)?.textContent?.trim() ?: "-"
+                result["modelDescription"] = doc.getElementsByTagName("modelDescription").item(0)?.textContent?.trim() ?: "-"
+                result["UDN"] = doc.getElementsByTagName("UDN").item(0)?.textContent?.trim() ?: "-"
+                Log.d(TAG, "Parsed info for $ip: $result")
+            } else {
+                Log.e(TAG, "Invalid response code for $ip: $responseCode")
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to fetch device info for $ip: ${e.message}")
         }
         return result
     }
@@ -131,13 +144,16 @@ class MainActivity : ComponentActivity() {
                             (ip.startsWith("172.") && ip.split(".")[1].toIntOrNull() in 16..31)) {
                             val parts = ip.split(".")
                             if (parts.size >= 3) {
+                                Log.d(TAG, "Found local IP prefix: ${parts[0]}.${parts[1]}.${parts[2]}")
                                 return "${parts[0]}.${parts[1]}.${parts[2]}"
                             }
                         }
                     }
                 }
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get local IP prefix: ${e.message}")
+        }
         return null
     }
 }
