@@ -26,6 +26,21 @@ jobs:
           # 清空可能衝突的變數
           echo "ANDROID_SDK_ROOT=" >> $GITHUB_ENV
 
+      - name: Download Gradle CLI
+        run: |
+          GRADLE_VERSION=8.1.1
+          curl -fSL "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" -o gradle.zip
+          unzip -q gradle.zip
+          echo "$PWD/gradle-${GRADLE_VERSION}/bin" >> $GITHUB_PATH
+
+      - name: Generate Gradle wrapper if missing & ensure executable
+        run: |
+          if [ ! -f ./gradlew ] || [ ! -f ./gradle/wrapper/gradle-wrapper.jar ]; then
+            echo "Generating missing Gradle wrapper..."
+            gradle wrapper --gradle-version 8.1.1
+          fi
+          chmod +x ./gradlew
+
       - name: Install Android SDK command-line tools & required packages
         run: |
           set -e
@@ -40,15 +55,6 @@ jobs:
         run: |
           echo "$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
           echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
-
-      - name: Ensure Gradle wrapper is executable
-        run: |
-          if [ -f ./gradlew ]; then
-            chmod +x ./gradlew
-          else
-            echo "ERROR: gradlew not found; commit the Gradle wrapper into the repo." >&2
-            exit 1
-          fi
 
       - name: Build debug APK
         run: ./gradlew assembleDebug --no-daemon
