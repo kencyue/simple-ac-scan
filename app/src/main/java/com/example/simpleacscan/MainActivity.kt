@@ -6,9 +6,9 @@ import android.os.Bundle
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.method.LinkMovementMethod
-import android.text.style.ClickableSpan
 import android.text.style.ForegroundColorSpan
 import android.text.style.StyleSpan
+import android.text.style.ClickableSpan
 import android.view.View
 import android.widget.TextView
 import androidx.activity.ComponentActivity
@@ -63,13 +63,13 @@ class MainActivity : ComponentActivity() {
         CoroutineScope(Dispatchers.IO).launch {
             val base = getLocalBaseIpPrefix()
             if (base == null) {
-                append(makeColoredSpan("找不到可用內網 IP\n", Color.RED))
+                append(makeColoredSpan("找不到可用內網 IP\n", Color.RED, true))
                 endScan()
                 return@launch
             }
-            append(makeColoredSpan("掃描 $base.1-254\n\n", Color.CYAN))
+            append(makeColoredSpan("掃描 $base.1-254\n\n", Color.CYAN, true))
             val found = scanNetwork(base)
-            append(makeColoredSpan("\n完成，找到 ${found.size} 台設備\n", Color.GREEN))
+            append(makeColoredSpan("\n完成，找到 ${found.size} 台設備\n", Color.GREEN, true))
             endScan()
         }
     }
@@ -83,7 +83,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // 彩色＋emoji 輸出
+    // 支援 emoji 與彩色
     private suspend fun scanNetwork(base: String): List<String> {
         val results = mutableListOf<String>()
         val sem = Semaphore(100)
@@ -94,7 +94,7 @@ class MainActivity : ComponentActivity() {
                 try {
                     if (isPortOpen(ip, port, timeoutMillis)) {
                         val info = fetchDeviceInfo(ip)
-                        // 綠色💻顯示IP, 其他資訊白色, 有錯用紅色
+                        // 💻 emoji 綠字顯示 IP
                         val header = makeColoredSpan("💻 $ip", Color.GREEN, bold = true)
                         val details = buildString {
                             append("\n  型號: ${info["modelName"]}\n")
@@ -105,7 +105,7 @@ class MainActivity : ComponentActivity() {
                         append(header)
                         append(details)
                         if (info.containsKey("error")) {
-                            append(makeColoredSpan("  ⚠️ 錯誤: ${info["error"]}\n", Color.RED, bold = true))
+                            append(makeColoredSpan("  ⚠️ 錯誤: ${info["error"]}\n", Color.RED, true))
                         }
                         append("\n\n")
                         synchronized(results) { results.add(ip) }
@@ -121,7 +121,7 @@ class MainActivity : ComponentActivity() {
         return results
     }
 
-    // 彩色span+可加粗
+    // 產生彩色字串，bold 預設 false
     private fun makeColoredSpan(text: String, color: Int, bold: Boolean = false): SpannableString {
         val ss = SpannableString(text)
         ss.setSpan(ForegroundColorSpan(color), 0, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
@@ -214,7 +214,7 @@ class MainActivity : ComponentActivity() {
         return result
     }
 
-    // append 可傳字串或 SpannableString
+    // append 可用 String 或 SpannableString
     private fun append(obj: CharSequence) {
         runOnUiThread {
             outputTv.append(obj)
