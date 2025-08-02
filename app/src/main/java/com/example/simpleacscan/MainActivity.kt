@@ -6,7 +6,6 @@ import android.widget.TextView
 import androidx.activity.ComponentActivity
 import kotlinx.coroutines.*
 import java.io.BufferedReader
-import java.io.InputStreamReader
 import java.net.*
 import java.util.concurrent.Semaphore
 import java.util.regex.Pattern
@@ -20,7 +19,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // 用程式建立簡單輸出區（也可以改成用 layout 裡的）
         outputTv = TextView(this)
         outputTv.setTextIsSelectable(true)
         outputTv.typeface = android.graphics.Typeface.MONOSPACE
@@ -41,7 +39,7 @@ class MainActivity : ComponentActivity() {
 
     private suspend fun scanNetwork(base: String): List<String> {
         val results = mutableListOf<String>()
-        val sem = Semaphore(100) // 限制併發
+        val sem = Semaphore(100)
         val jobs = (1..254).map { i ->
             val ip = "$base.$i"
             CoroutineScope(Dispatchers.IO).async {
