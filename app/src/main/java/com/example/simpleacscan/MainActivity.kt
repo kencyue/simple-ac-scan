@@ -120,18 +120,22 @@ class MainActivity : ComponentActivity() {
                 // 查找 <device> 節點
                 val deviceNodeList = doc.getElementsByTagNameNS("urn:schemas-upnp-org:device-1-0", "device")
                 if (deviceNodeList.length > 0) {
-                    val deviceNode = deviceNodeList.item(0) as Document
+                    val deviceNode = deviceNodeList.item(0)
                     Log.d(TAG, "Found <device> node for $ip")
 
                     // 從 <device> 節點中提取標籤值
                     fun getTagValue(tag: String): String {
-                        val nodeList = deviceNode.getElementsByTagNameNS("urn:schemas-upnp-org:device-1-0", tag)
+                        // 首先嘗試命名空間
+                        var nodeList = doc.getElementsByTagNameNS("urn:schemas-upnp-org:device-1-0", tag)
+                        if (nodeList.length > 0) {
+                            return nodeList.item(0).textContent?.trim() ?: "-"
+                        }
+                        // 回退到不帶命名空間
+                        nodeList = doc.getElementsByTagName(tag)
                         return if (nodeList.length > 0) {
                             nodeList.item(0).textContent?.trim() ?: "-"
                         } else {
-                            // 嘗試不帶命名空間
-                            val nodes = deviceNode.getElementsByTagName(tag)
-                            nodes.item(0)?.textContent?.trim() ?: "-"
+                            "-"
                         }
                     }
 
