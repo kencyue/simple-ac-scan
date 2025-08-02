@@ -27,7 +27,6 @@ class MainActivity : ComponentActivity() {
     private val port = 57223
     private val resource = "/device.xml"
     private val timeoutMillis = 1000
-    private var isScanning = false // 控制掃描狀態
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -38,31 +37,15 @@ class MainActivity : ComponentActivity() {
         outputTv.movementMethod = LinkMovementMethod.getInstance() // 啟用超連結
         setContentView(outputTv)
 
-        // 添加點擊事件以觸發重新掃描
-        outputTv.setOnClickListener {
-            if (!isScanning) {
-                startScan()
-            }
-        }
-
-        // 初始掃描
-        startScan()
-    }
-
-    private fun startScan() {
-        isScanning = true
-        outputTv.text = "正在掃描...\n"
         CoroutineScope(Dispatchers.IO).launch {
             val base = getLocalBaseIpPrefix()
             if (base == null) {
                 append("找不到可用內網 IP\n")
-                isScanning = false
                 return@launch
             }
             append("掃描 $base.1-254\n")
             val found = scanNetwork(base)
             append("\n完成，找到 ${found.size} 台設備\n")
-            isScanning = false
         }
     }
 
@@ -84,6 +67,7 @@ class MainActivity : ComponentActivity() {
                             append("  modelNumber: ${info["modelNumber"]}\n")
                             append("  modelDescription: ${info["modelDescription"]}\n")
                             append("  UDN: ${info["UDN"]}\n")
+                            append("  Status: ${info.getOrDefault("status", "設備資料已讀取")}\n")
                             if (info.containsKey("error")) {
                                 append("  Error: ${info["error"]}\n")
                             }
@@ -123,7 +107,8 @@ class MainActivity : ComponentActivity() {
             "modelName" to "-",
             "modelNumber" to "-",
             "modelDescription" to "-",
-            "UDN" to "-"
+            "UDN" to "-",
+            "status" to "資料已讀取"
         )
         try {
             val url = URL("http://$ip:$port$resource")
@@ -137,7 +122,8 @@ class MainActivity : ComponentActivity() {
             Log.d(TAG, "Response code for $ip: $responseCode")
             
             if (responseCode != 200) {
-                Log.e(TAG, "無法讀取 device.xml for $ip: HTTP $responseCode")
+                Log.e(TAG, "無法讀取設備資料 for $ip: HTTP $responseCode")
+                result["status"] = "無法讀取設備資料"
                 result["error"] = "HTTP $responseCode"
                 return result
             }
@@ -145,7 +131,8 @@ class MainActivity : ComponentActivity() {
             // 讀取並記錄 XML 內容
             val body = conn.inputStream.bufferedReader().use(BufferedReader::readText)
             if (body.isEmpty()) {
-                Log.e(TAG, "無法讀取 device.xml for $ip: Empty response")
+                Log.e(TAG, "無法讀取設備資料 for $ip: Empty response")
+                result["status"] = "無法讀取設備資料"
                 result["error"] = "Empty response"
                 return result
             }
@@ -162,6 +149,7 @@ class MainActivity : ComponentActivity() {
                 Log.d(TAG, "XML parsed successfully for $ip")
             } catch (e: Exception) {
                 Log.e(TAG, "XML parsing failed for $ip: ${e.message}")
+                result["status"] = "無法讀取設備資料"
                 result["error"] = "XML parsing failed: ${e.message}"
                 return result
             }
@@ -199,6 +187,7 @@ class MainActivity : ComponentActivity() {
                 Log.d(TAG, "Parsed info for $ip: $result")
             } else {
                 Log.e(TAG, "No <device> node found in XML for $ip")
+                result["status"] = "無法讀取設備資料"
                 result["error"] = "No <device> node found"
             }
 
@@ -216,6 +205,7 @@ class MainActivity : ComponentActivity() {
             Log.d(TAG, "All tags in XML for $ip: ${allTags.joinToString(", ")}")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to fetch device info for $ip: ${e.message}")
+            result["status"] = "無法讀取設備資料"
             result["error"] = "Failed to fetch: ${e.message}"
         }
         return result
@@ -237,4 +227,38 @@ class MainActivity : ComponentActivity() {
                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
                     widget.context.startActivity(intent)
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to open URL $url: ${
+                    Log.e(TAG, "Failed to open URL $url: ${e.message}")
+                }
+            }
+        }, 0, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        return spannable
+    }
+
+    private fun getLocalBaseIpPrefix(): String? {
+        try {
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+            while (interfaces.hasMoreElements()) {
+                val nif = interfaces.nextElement()
+                if (!nif.isUp || nif.isLoopback) continue
+                val addrs = nif.inetAddresses
+                while (addrs.hasMoreElements()) {
+                    val addr = addrs.nextElement()
+                    if (addr is Inet4Address && !addr.isLoopbackAddress) {
+                        val ip = addr.hostAddress
+                        if (ip.startsWith("10.") || ip.startsWith("192.168.") ||
+                            (ip.startsWith("172.") && ip.split(".")[1].toIntOrNull() in 16..31)) {
+                            val parts = ip.split(".")
+                            if (parts.size >= 3) {
+                                Log.d(TAG, "Found local IP prefix: ${parts[0]}.${parts[1]}.${parts[2]}")
+                                return "${parts[0]}.${parts[1]}.${parts[2]}"
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get local IP prefix: ${e.message}")
+        }
+        return null
+    }
+}
