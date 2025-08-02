@@ -2,17 +2,17 @@ name: Android CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      JAVA_TOOL_OPTIONS: "-Xmx1g"
+      ANDROID_HOME: ${{ runner.temp }}/android-sdk   # 只用 ANDROID_HOME，避免 ANDROID_SDK_ROOT 跟它衝突
+
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Setup Java 17
@@ -22,36 +22,32 @@ jobs:
           java-version: '17'
           cache: gradle
 
-      - name: Configure Android SDK path
+      - name: Install Android SDK command-line tools & required packages
         run: |
-          echo "ANDROID_HOME=$RUNNER_TEMP/android-sdk" >> $GITHUB_ENV
-          echo "ANDROID_SDK_ROOT=" >> $GITHUB_ENV
-
-      - name: Install Android SDK command-line tools and platform/build-tools
-        run: |
-          mkdir -p "$ANDROID_HOME/cmdline-tools"
-          cd "$ANDROID_HOME"
-          # 下面這個 URL 可能需更新為最新 commandlinetools 版本，如果失敗請到官方拿最新下載連結替換
-          curl -fSL "https://dl.google.com/android/repository/commandlinetools-linux-10925496_latest.zip" -o cmdline.zip
-          unzip -q cmdline.zip -d cmdline-tools
-          mv cmdline-tools/cmdline-tools cmdline-tools/latest
+          set -e
+          # 建立 SDK 根目錄
+          mkdir -p "$ANDROID_HOME"
+          # 下載目前有效的 command-line tools（名稱會變，這是一個目前存在的版本） 
+          curl -fSL "https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip" -o commandlinetools.zip
+          unzip -q commandlinetools.zip -d "$ANDROID_HOME/cmdline-tools"
+          # 官方結構要求：放到 cmdline-tools/latest 下面
+          mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+          # 只用 ANDROID_HOME，不設 ANDROID_SDK_ROOT（避免衝突）
+          unset ANDROID_SDK_ROOT || true
+          # 同意 license 並安裝必要元件（依照你 project 用的 compileSdk 調整版本）
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" --licenses
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "platform-tools" "platforms;android-33" "build-tools;33.0.1"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "platform-tools" "build-tools;34.0.0" "platforms;android-34"
 
-      - name: Cache Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-cache-${{ runner.os }}-${{ hashFiles('**/*.gradle*','**/gradle-wrapper.properties') }}
-          restore-keys: gradle-cache-${{ runner.os }}-
+      - name: Add SDK to PATH
+        run: |
+          echo "$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
 
-      - name: Build Debug APK
+      - name: Build debug APK
         run: ./gradlew assembleDebug --no-daemon
 
-      - name: Upload APK
+      - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: acscan-apk
+          name: app-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
