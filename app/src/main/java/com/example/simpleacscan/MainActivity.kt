@@ -1,11 +1,13 @@
 package com.example.simpleacscan
 
 import android.os.Bundle
+import android.text.Layout
 import android.text.SpannableString
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.TextPaint
 import android.text.method.LinkMovementMethod
+import android.text.style.AlignmentSpan
 import android.text.style.ClickableSpan
 import android.text.style.ForegroundColorSpan
 import android.text.style.LeadingMarginSpan
@@ -82,8 +84,8 @@ class MainActivity : ComponentActivity() {
     private fun endScan() {
         runOnUiThread {
             isScanning = false
-            if (!outputTv.text.toString().startsWith(scanTip)) {
-                appendLarge("\n$scanTip", Color.LTGRAY)
+            if (!outputTv.text.toString().contains("請點擊畫面重新掃描")) {
+                append(makeCenteredTip("請點擊畫面重新掃描", Color.LTGRAY))
             }
         }
     }
@@ -312,6 +314,15 @@ class MainActivity : ComponentActivity() {
         spannable.setSpan(ForegroundColorSpan(color), 0, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         spannable.setSpan(RelativeSizeSpan(1.4f), 0, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         append(spannable)
+    }
+
+    private fun makeCenteredTip(text: String, color: Int, sizeMultiplier: Float = 1.2f): SpannableString {
+        val content = "($text)"
+        val spannable = SpannableString(content + "\n")
+        spannable.setSpan(ForegroundColorSpan(color), 0, content.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        spannable.setSpan(RelativeSizeSpan(sizeMultiplier), 0, content.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        spannable.setSpan(AlignmentSpan.Standard(Layout.Alignment.ALIGN_CENTER), 0, spannable.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        return spannable
     }
 
     private fun createHyperlink(text: String, url: String): SpannableString {
