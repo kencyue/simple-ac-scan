@@ -30,25 +30,6 @@ class MainActivity : ComponentActivity() {
         setContentView(outputTv)
 
         CoroutineScope(Dispatchers.IO).launch {
-            // 測試單一 IP
-            val ip = "192.168.31.156" // 聚焦已知設備
-            append("測試單一 IP: $ip，port $port\n")
-            if (isPortOpen(ip, port, timeoutMillis)) {
-                val info = fetchDeviceInfo(ip)
-                val entry = buildString {
-                    append("=== $ip ===\n")
-                    append("  modelName: ${info["modelName"]}\n")
-                    append("  modelNumber: ${info["modelNumber"]}\n")
-                    append("  modelDescription: ${info["modelDescription"]}\n")
-                    append("  UDN: ${info["UDN"]}\n")
-                }
-                append(entry)
-            } else {
-                append("無法連接到 $ip:$port\n")
-            }
-
-            // 原始掃描邏輯（註釋掉，必要時可恢復）
-            /*
             val base = getLocalBaseIpPrefix()
             if (base == null) {
                 append("找不到可用內網 IP\n")
@@ -57,7 +38,6 @@ class MainActivity : ComponentActivity() {
             append("掃描 $base.1-254，port $port\n")
             val found = scanNetwork(base)
             append("\n完成，找到 ${found.size} 台設備\n")
-            */
         }
     }
 
@@ -125,89 +105,99 @@ class MainActivity : ComponentActivity() {
             conn.connect()
             val responseCode = conn.responseCode
             Log.d(TAG, "Response code for $ip: $responseCode")
-            if (responseCode == 200) {
-                // 讀取並記錄原始 XML 內容
-                val body = conn.inputStream.bufferedReader().use(BufferedReader::readText)
-                Log.d(TAG, "Response body for $ip:\n$body")
-                
-                // 解析 XML
-                val factory = DocumentBuilderFactory.newInstance()
-                factory.isNamespaceAware = true
-                val builder = factory.newDocumentBuilder()
-                val doc = builder.parse(InputSource(StringReader(body)))
-                doc.documentElement.normalize()
-
-                // 查找 <device> 節點
-                val deviceNodeList = doc.getElementsByTagNameNS("urn:schemas-upnp-org:device-1-0", "device")
-                Log.d(TAG, "Device nodes found for $ip: ${deviceNodeList.length}")
-                if (deviceNodeList.length > 0) {
-                    val deviceNode = deviceNodeList.item(0)
-                    // 記錄 <device> 節點的子標籤和值
-                    val deviceTags = mutableMapOf<String, String>()
-                    val childNodes = deviceNode.childNodes
-                    for (i in 0 until childNodes.length) {
-                        val child = childNodes.item(i)
-                        if (child.nodeType == Node.ELEMENT_NODE) {
-                            val tagName = child.nodeName
-                            val tagValue = child.textContent?.trim() ?: ""
-                            deviceTags[tagName] = tagValue
-                            Log.d(TAG, "Device tag for $ip: $tagName = $tagValue")
-                        }
-                    }
-                    Log.d(TAG, "All tags in <device> node for $ip: ${deviceTags.keys.joinToString(", ")}")
-
-                    // 提取標籤值
-                    fun getTagValue(tag: String): String {
-                        // 嘗試命名空間
-                        var nodeList = doc.getElementsByTagNameNS("urn:schemas-upnp-org:device-1-0", tag)
-                        if (nodeList.length > 0) {
-                            val value = nodeList.item(0).textContent?.trim()
-                            Log.d(TAG, "Found $tag with namespace for $ip: $value")
-                            return value ?: "-"
-                        }
-                        // 回退到不帶命名空間
-                        nodeList = doc.getElementsByTagName(tag)
-                        if (nodeList.length > 0) {
-                            val value = nodeList.item(0).textContent?.trim()
-                            Log.d(TAG, "Found $tag without namespace for $ip: $value")
-                            return value ?: "-"
-                        }
-                        // 從 deviceTags 查找
-                        val value = deviceTags[tag]
-                        if (value != null) {
-                            Log.d(TAG, "Found $tag in deviceTags for $ip: $value")
-                            return value
-                        }
-                        Log.d(TAG, "Tag $tag not found for $ip")
-                        return "-"
-                    }
-
-                    result["modelName"] = getTagValue("modelName")
-                    result["modelNumber"] = getTagValue("modelNumber")
-                    result["modelDescription"] = getTagValue("modelDescription")
-                    result["UDN"] = getTagValue("UDN")
-                    Log.d(TAG, "Parsed info for $ip: $result")
-                } else {
-                    Log.e(TAG, "No <device> node found in XML for $ip")
-                }
-
-                // 記錄所有標籤名稱
-                val allTags = mutableSetOf<String>()
-                fun traverseNodes(node: Node) {
-                    if (node.nodeType == Node.ELEMENT_NODE) {
-                        allTags.add(node.nodeName)
-                        for (i in 0 until node.childNodes.length) {
-                            traverseNodes(node.childNodes.item(i))
-                        }
-                    }
-                }
-                traverseNodes(doc.documentElement)
-                Log.d(TAG, "All tags in XML for $ip: ${allTags.joinToString(", ")}")
-            } else {
-                Log.e(TAG, "Invalid response code for $ip: $responseCode")
+            
+            if (responseCode != 200) {
+                Log.e(TAG, "檔案找不到 for $ip: HTTP $responseCode")
+                result["error"] = "檔案找不到: HTTP $responseCode"
+                return result
             }
+
+            // 讀取並記錄 XML 內容
+            val body = conn.inputStream.bufferedReader().use(BufferedReader::readText)
+            if (body.isEmpty()) {
+                Log.e(TAG, "檔案找不到 for $ip: Empty response")
+                result["error"] = "檔案找不到: Empty response"
+                return result
+            }
+            Log.d(TAG, "Response body for $ip:\n$body")
+            
+            // 解析 XML
+            val factory = DocumentBuilderFactory.newInstance()
+            factory.isNamespaceAware = true
+            val builder = factory.newDocumentBuilder()
+            val doc = builder.parse(InputSource(StringReader(body)))
+            doc.documentElement.normalize()
+
+            // 查找 <device> 節點
+            val deviceNodeList = doc.getElementsByTagNameNS("urn:schemas-upnp-org:device-1-0", "device")
+            Log.d(TAG, "Device nodes found for $ip: ${deviceNodeList.length}")
+            if (deviceNodeList.length > 0) {
+                val deviceNode = deviceNodeList.item(0)
+                // 記錄 <device> 節點的子標籤和值
+                val deviceTags = mutableMapOf<String, String>()
+                val childNodes = deviceNode.childNodes
+                for (i in 0 until childNodes.length) {
+                    val child = childNodes.item(i)
+                    if (child.nodeType == Node.ELEMENT_NODE) {
+                        val tagName = child.nodeName
+                        val tagValue = child.textContent?.trim() ?: ""
+                        deviceTags[tagName] = tagValue
+                        Log.d(TAG, "Device tag for $ip: $tagName = $tagValue")
+                    }
+                }
+                Log.d(TAG, "All tags in <device> node for $ip: ${deviceTags.keys.joinToString(", ")}")
+
+                // 提取標籤值
+                fun getTagValue(tag: String): String {
+                    // 嘗試命名空間
+                    var nodeList = doc.getElementsByTagNameNS("urn:schemas-upnp-org:device-1-0", tag)
+                    if (nodeList.length > 0) {
+                        val value = nodeList.item(0).textContent?.trim()
+                        Log.d(TAG, "Found $tag with namespace for $ip: $value")
+                        return value ?: "-"
+                    }
+                    // 回退到不帶命名空間
+                    nodeList = doc.getElementsByTagName(tag)
+                    if (nodeList.length > 0) {
+                        val value = nodeList.item(0).textContent?.trim()
+                        Log.d(TAG, "Found $tag without namespace for $ip: $value")
+                        return value ?: "-"
+                    }
+                    // 從 deviceTags 查找
+                    val value = deviceTags[tag]
+                    if (value != null) {
+                        Log.d(TAG, "Found $tag in deviceTags for $ip: $value")
+                        return value
+                    }
+                    Log.d(TAG, "Tag $tag not found for $ip")
+                    return "-"
+                }
+
+                result["modelName"] = getTagValue("modelName")
+                result["modelNumber"] = getTagValue("modelNumber")
+                result["modelDescription"] = getTagValue("modelDescription")
+                result["UDN"] = getTagValue("UDN")
+                Log.d(TAG, "Parsed info for $ip: $result")
+            } else {
+                Log.e(TAG, "No <device> node found in XML for $ip")
+                result["error"] = "No <device> node found"
+            }
+
+            // 記錄所有標籤名稱
+            val allTags = mutableSetOf<String>()
+            fun traverseNodes(node: Node) {
+                if (node.nodeType == Node.ELEMENT_NODE) {
+                    allTags.add(node.nodeName)
+                    for (i in 0 until node.childNodes.length) {
+                        traverseNodes(node.childNodes.item(i))
+                    }
+                }
+            }
+            traverseNodes(doc.documentElement)
+            Log.d(TAG, "All tags in XML for $ip: ${allTags.joinToString(", ")}")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to fetch device info for $ip: ${e.message}")
+            result["error"] = "Failed to fetch: ${e.message}"
         }
         return result
     }
