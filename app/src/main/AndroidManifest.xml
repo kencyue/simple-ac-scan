@@ -5,6 +5,7 @@
 
     <application
         android:label="AC Scan"
+        android:exported="true"
         android:theme="@style/Theme.AppCompat.Light.NoActionBar">
         <activity android:name=".MainActivity"
             android:exported="true">
