@@ -61,7 +61,7 @@ class MainActivity : ComponentActivity() {
                 endScan()
                 return@launch
             }
-            append("掃描 $base.1-254\n")
+            append("掃描 $base.1-254\n\n")
             val found = scanNetwork(base)
             append("\n完成，找到 ${found.size} 台設備\n")
             endScan()
