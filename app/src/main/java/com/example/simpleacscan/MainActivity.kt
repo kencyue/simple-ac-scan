@@ -3,13 +3,12 @@ package com.example.simpleacscan
 import android.os.Bundle
 import android.util.Log
 import android.widget.TextView
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import kotlinx.coroutines.*
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
-import java.net.InetAddress
+import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.net.URL
 import java.util.*
@@ -21,9 +20,11 @@ class MainActivity : ComponentActivity() {
     private val port = 57223
     private val resource = "/device.xml"
     private val timeoutMillis = 500
+
+    // 單一掃描 scope
+    private val scanScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     @Volatile
     private var isScanning = false
-    private val scanScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -32,86 +33,92 @@ class MainActivity : ComponentActivity() {
             setTextIsSelectable(true)
             typeface = android.graphics.Typeface.MONOSPACE
             textSize = 12f
-            text = "點一下畫面重新掃描\n"
-            setOnClickListener {
-                triggerScan()
-            }
         }
-
         setContentView(outputTv)
 
-        // 開機先掃一次
-        triggerScan()
+        // 一進來跑一次
+        doScan()
+
+        // 點一下畫面再掃一次（不改原本邏輯，只是再觸發）
+        outputTv.setOnClickListener {
+            doScan()
+        }
     }
 
-    private fun triggerScan() {
+    private fun doScan() {
         if (isScanning) {
-            runOnUiThread {
-                Toast.makeText(this, "掃描進行中，稍後再點", Toast.LENGTH_SHORT).show()
-            }
+            append("已有掃描在進行，請等候。\n")
             return
         }
-
+        isScanning = true
         scanScope.launch {
-            isScanning = true
-            append("----- 開始掃描 ${Date()} -----\n")
-            val base = getLocalBaseIpPrefix()
-            if (base == null) {
-                append("找不到可用內網 IP\n")
-                isScanning = false
-                return@launch
-            }
-
-            val semaphore = Semaphore(40) // 控制最大併發數
-            val jobs = mutableListOf<Job>()
-            for (i in 1..254) {
-                val ip = "$base.$i"
-                jobs += launch {
-                    semaphore.acquire()
-                    try {
-                        val url = URL("http://$ip:$port$resource")
-                        val conn = url.openConnection() as HttpURLConnection
-                        conn.connectTimeout = timeoutMillis
-                        conn.readTimeout = timeoutMillis
-                        conn.requestMethod = "GET"
-                        val code = try { conn.responseCode } catch (e: Exception) { -1 }
-                        if (code == 200) {
-                            val reader = BufferedReader(InputStreamReader(conn.inputStream))
-                            val firstLine = reader.readLine() ?: ""
-                            append("有回應：$ip → ${firstLine.trim()}\n")
-                            reader.close()
-                        }
-                        conn.disconnect()
-                    } catch (_: Exception) {
-                        // silent fail
-                    } finally {
-                        semaphore.release()
-                    }
+            try {
+                append("=== 開始掃描 網段 at ${Date()} ===\n")
+                val base = getLocalBaseIpPrefix()
+                if (base == null) {
+                    append("找不到可用內網 IP\n")
+                    return@launch
                 }
+                scanNetwork(base)
+                append("=== 掃描完成 ===\n")
+            } finally {
+                isScanning = false
             }
-
-            jobs.joinAll()
-            append("----- 掃描結束 -----\n")
-            isScanning = false
         }
     }
 
-    private fun append(text: String) {
-        runOnUiThread {
-            outputTv.append(text)
+    private suspend fun scanNetwork(base: String) {
+        val jobs = mutableListOf<Job>()
+        val semaphore = Semaphore(50) // 限制同時掃描數
+
+        for (i in 1..254) {
+            val target = "$base.$i"
+            val job = scanScope.launch {
+                semaphore.acquire()
+                try {
+                    val url = URL("http://$target:$port$resource")
+                    try {
+                        with(url.openConnection() as HttpURLConnection) {
+                            connectTimeout = timeoutMillis
+                            readTimeout = timeoutMillis
+                            requestMethod = "GET"
+                            // Optional: header 可以加 if 你原本有
+                            val code = responseCode
+                            if (code == 200) {
+                                val body = inputStream.bufferedReader().use { it.readText() }
+                                append("[$target] 取得 device.xml，長度 ${body.length} bytes\n")
+                                // 顯示前幾行 snippet（避免太長）
+                                val lines = body.lines()
+                                val snippet = lines.take(5).joinToString("\n")
+                                append("  snippet:\n$snippet\n")
+                            } else {
+                                append("[$target] HTTP $code\n")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        append("[$target] 連線失敗: ${e.message}\n")
+                    }
+                } finally {
+                    semaphore.release()
+                }
+            }
+            jobs += job
         }
+
+        // 等所有完成
+        jobs.joinAll()
     }
 
     private fun getLocalBaseIpPrefix(): String? {
         try {
-            val interfaces = NetworkInterface.getNetworkInterfaces()
+            val interfaces = Collections.list(NetworkInterface.getNetworkInterfaces())
             for (intf in interfaces) {
                 if (!intf.isUp || intf.isLoopback) continue
-                val addrs = intf.inetAddresses
-                while (addrs.hasMoreElements()) {
-                    val addr = addrs.nextElement()
-                    if (addr is InetAddress && !addr.isLoopbackAddress && addr.hostAddress.contains(".")) {
-                        val parts = addr.hostAddress.split(".")
+                val addrs = Collections.list(intf.inetAddresses)
+                for (addr in addrs) {
+                    if (addr is Inet4Address && !addr.isLoopbackAddress) {
+                        val ip = addr.hostAddress ?: continue // e.g., "192.168.1.42"
+                        val parts = ip.split(".")
                         if (parts.size == 4) {
                             return "${parts[0]}.${parts[1]}.${parts[2]}"
                         }
@@ -119,9 +126,16 @@ class MainActivity : ComponentActivity() {
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "取得本機 IP 失敗", e)
+            Log.e(TAG, "getLocalBaseIpPrefix failed", e)
         }
         return null
+    }
+
+    // UI 安全更新
+    private fun append(text: String) {
+        runOnUiThread {
+            outputTv.append(text)
+        }
     }
 
     override fun onDestroy() {
