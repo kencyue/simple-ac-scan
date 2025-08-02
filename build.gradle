@@ -1,5 +1,0 @@
-plugins {
-    // 只定义版本，不在此启用具体插件（module 里各自启用）
-    id 'com.android.application' version '8.1.0' apply false
-    id 'org.jetbrains.kotlin.android' version '1.9.10' apply false
-}
