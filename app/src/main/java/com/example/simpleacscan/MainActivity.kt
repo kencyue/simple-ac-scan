@@ -214,7 +214,8 @@ class MainActivity : ComponentActivity() {
     private fun append(text: String) {
         Log.i(TAG, text)
         runOnUiThread {
-            outputTv.append(text)
+            val spannable = SpannableString.valueOf(text)
+            outputTv.append(spannable)
         }
     }
 
