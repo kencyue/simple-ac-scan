@@ -27,7 +27,9 @@ class MainActivity : ComponentActivity() {
     private val port = 57223
     private val resource = "/device.xml"
     private val timeoutMillis = 1000
-    private val scanTip = "🔄 點一下重新掃描\n"
+    private var isScanning = false
+    private val scanTip = "請點擊畫面重新掃描\n"
+    private val scanningTip = "正在掃描，請稍候...\n"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -38,29 +40,40 @@ class MainActivity : ComponentActivity() {
         outputTv.movementMethod = LinkMovementMethod.getInstance()
         setContentView(outputTv)
 
-        // 顯示提示 & 啟動第一次掃描
         showTipAndScan()
 
-        // 點擊 TextView 觸發重新掃描
         outputTv.setOnClickListener {
-            showTipAndScan()
+            if (!isScanning) {
+                showTipAndScan()
+            }
         }
     }
 
-    // 將提示+清空並重新掃描包成一個 function
     private fun showTipAndScan() {
         runOnUiThread {
-            outputTv.text = scanTip
+            outputTv.text = scanningTip
+            isScanning = true
         }
         CoroutineScope(Dispatchers.IO).launch {
             val base = getLocalBaseIpPrefix()
             if (base == null) {
                 append("找不到可用內網 IP\n")
+                endScan()
                 return@launch
             }
             append("掃描 $base.1-254\n")
             val found = scanNetwork(base)
             append("\n完成，找到 ${found.size} 台設備\n")
+            endScan()
+        }
+    }
+
+    private fun endScan() {
+        runOnUiThread {
+            isScanning = false
+            if (!outputTv.text.startsWith(scanTip)) {
+                outputTv.append("\n$scanTip")
+            }
         }
     }
 
