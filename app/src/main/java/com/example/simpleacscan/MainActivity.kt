@@ -30,6 +30,25 @@ class MainActivity : ComponentActivity() {
         setContentView(outputTv)
 
         CoroutineScope(Dispatchers.IO).launch {
+            // 測試單一 IP（可切換回完整掃描）
+            val ip = "192.168.31.156" // 聚焦已知設備
+            append("測試單一 IP: $ip，port $port\n")
+            if (isPortOpen(ip, port, timeoutMillis)) {
+                val info = fetchDeviceInfo(ip)
+                val entry = buildString {
+                    append("=== $ip ===\n")
+                    append("  modelName: ${info["modelName"]}\n")
+                    append("  modelNumber: ${info["modelNumber"]}\n")
+                    append("  modelDescription: ${info["modelDescription"]}\n")
+                    append("  UDN: ${info["UDN"]}\n")
+                }
+                append(entry)
+            } else {
+                append("無法連接到 $ip:$port\n")
+            }
+
+            // 原始掃描邏輯（註釋掉，必要時可恢復）
+            /*
             val base = getLocalBaseIpPrefix()
             if (base == null) {
                 append("找不到可用內網 IP\n")
@@ -38,6 +57,7 @@ class MainActivity : ComponentActivity() {
             append("掃描 $base.1-254，port $port\n")
             val found = scanNetwork(base)
             append("\n完成，找到 ${found.size} 台設備\n")
+            */
         }
     }
 
@@ -119,24 +139,38 @@ class MainActivity : ComponentActivity() {
 
                 // 查找 <device> 節點
                 val deviceNodeList = doc.getElementsByTagNameNS("urn:schemas-upnp-org:device-1-0", "device")
+                Log.d(TAG, "Device nodes found for $ip: ${deviceNodeList.length}")
                 if (deviceNodeList.length > 0) {
                     val deviceNode = deviceNodeList.item(0)
-                    Log.d(TAG, "Found <device> node for $ip")
+                    // 記錄 <device> 節點的子標籤
+                    val deviceTags = mutableSetOf<String>()
+                    val childNodes = deviceNode.childNodes
+                    for (i in 0 until childNodes.length) {
+                        val child = childNodes.item(i)
+                        if (child.nodeType == Node.ELEMENT_NODE) {
+                            deviceTags.add(child.nodeName)
+                        }
+                    }
+                    Log.d(TAG, "Tags in <device> node for $ip: ${deviceTags.joinToString(", ")}")
 
-                    // 從 <device> 節點中提取標籤值
+                    // 提取標籤值
                     fun getTagValue(tag: String): String {
-                        // 首先嘗試命名空間
+                        // 嘗試命名空間
                         var nodeList = doc.getElementsByTagNameNS("urn:schemas-upnp-org:device-1-0", tag)
                         if (nodeList.length > 0) {
-                            return nodeList.item(0).textContent?.trim() ?: "-"
+                            val value = nodeList.item(0).textContent?.trim()
+                            Log.d(TAG, "Found $tag with namespace for $ip: $value")
+                            return value ?: "-"
                         }
                         // 回退到不帶命名空間
                         nodeList = doc.getElementsByTagName(tag)
-                        return if (nodeList.length > 0) {
-                            nodeList.item(0).textContent?.trim() ?: "-"
-                        } else {
-                            "-"
+                        if (nodeList.length > 0) {
+                            val value = nodeList.item(0).textContent?.trim()
+                            Log.d(TAG, "Found $tag without namespace for $ip: $value")
+                            return value ?: "-"
                         }
+                        Log.d(TAG, "Tag $tag not found for $ip")
+                        return "-"
                     }
 
                     result["modelName"] = getTagValue("modelName")
@@ -148,7 +182,7 @@ class MainActivity : ComponentActivity() {
                     Log.e(TAG, "No <device> node found in XML for $ip")
                 }
 
-                // 記錄所有標籤名稱以供診斷
+                // 記錄所有標籤名稱
                 val allTags = mutableSetOf<String>()
                 fun traverseNodes(node: Node) {
                     if (node.nodeType == Node.ELEMENT_NODE) {
