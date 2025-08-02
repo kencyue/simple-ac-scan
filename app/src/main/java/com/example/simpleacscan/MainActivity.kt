@@ -6,16 +6,20 @@ import android.widget.TextView
 import androidx.activity.ComponentActivity
 import kotlinx.coroutines.*
 import java.io.BufferedReader
+import java.io.StringReader
 import java.net.*
 import java.util.concurrent.Semaphore
 import javax.xml.parsers.DocumentBuilderFactory
+import org.w3c.dom.Document
+import org.w3c.dom.Node
+import org.xml.sax.InputSource
 
 class MainActivity : ComponentActivity() {
     private val TAG = "ACScan"
     private lateinit var outputTv: TextView
     private val port = 57223
     private val resource = "/device.xml"
-    private val timeoutMillis = 1000 // 增加超時時間以提高連線穩定性
+    private val timeoutMillis = 1000
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -94,7 +98,7 @@ class MainActivity : ComponentActivity() {
         try {
             val url = URL("http://$ip:$port$resource")
             val conn = url.openConnection() as HttpURLConnection
-            conn.connectTimeout = 3000 // 增加超時時間
+            conn.connectTimeout = 3000
             conn.readTimeout = 3000
             conn.requestMethod = "GET"
             Log.d(TAG, "Connecting to $url")
@@ -102,17 +106,56 @@ class MainActivity : ComponentActivity() {
             val responseCode = conn.responseCode
             Log.d(TAG, "Response code for $ip: $responseCode")
             if (responseCode == 200) {
+                // 讀取並記錄原始 XML 內容
                 val body = conn.inputStream.bufferedReader().use(BufferedReader::readText)
                 Log.d(TAG, "Response body for $ip:\n$body")
+                
+                // 解析 XML
                 val factory = DocumentBuilderFactory.newInstance()
-                factory.isNamespaceAware = true // 支援命名空間
+                factory.isNamespaceAware = true
                 val builder = factory.newDocumentBuilder()
-                val doc = builder.parse(conn.inputStream)
-                result["modelName"] = doc.getElementsByTagName("modelName").item(0)?.textContent?.trim() ?: "-"
-                result["modelNumber"] = doc.getElementsByTagName("modelNumber").item(0)?.textContent?.trim() ?: "-"
-                result["modelDescription"] = doc.getElementsByTagName("modelDescription").item(0)?.textContent?.trim() ?: "-"
-                result["UDN"] = doc.getElementsByTagName("UDN").item(0)?.textContent?.trim() ?: "-"
-                Log.d(TAG, "Parsed info for $ip: $result")
+                val doc = builder.parse(InputSource(StringReader(body)))
+                doc.documentElement.normalize()
+
+                // 查找 <device> 節點
+                val deviceNodeList = doc.getElementsByTagNameNS("urn:schemas-upnp-org:device-1-0", "device")
+                if (deviceNodeList.length > 0) {
+                    val deviceNode = deviceNodeList.item(0) as Document
+                    Log.d(TAG, "Found <device> node for $ip")
+
+                    // 從 <device> 節點中提取標籤值
+                    fun getTagValue(tag: String): String {
+                        val nodeList = deviceNode.getElementsByTagNameNS("urn:schemas-upnp-org:device-1-0", tag)
+                        return if (nodeList.length > 0) {
+                            nodeList.item(0).textContent?.trim() ?: "-"
+                        } else {
+                            // 嘗試不帶命名空間
+                            val nodes = deviceNode.getElementsByTagName(tag)
+                            nodes.item(0)?.textContent?.trim() ?: "-"
+                        }
+                    }
+
+                    result["modelName"] = getTagValue("modelName")
+                    result["modelNumber"] = getTagValue("modelNumber")
+                    result["modelDescription"] = getTagValue("modelDescription")
+                    result["UDN"] = getTagValue("UDN")
+                    Log.d(TAG, "Parsed info for $ip: $result")
+                } else {
+                    Log.e(TAG, "No <device> node found in XML for $ip")
+                }
+
+                // 記錄所有標籤名稱以供診斷
+                val allTags = mutableSetOf<String>()
+                fun traverseNodes(node: Node) {
+                    if (node.nodeType == Node.ELEMENT_NODE) {
+                        allTags.add(node.nodeName)
+                        for (i in 0 until node.childNodes.length) {
+                            traverseNodes(node.childNodes.item(i))
+                        }
+                    }
+                }
+                traverseNodes(doc.documentElement)
+                Log.d(TAG, "All tags in XML for $ip: ${allTags.joinToString(", ")}")
             } else {
                 Log.e(TAG, "Invalid response code for $ip: $responseCode")
             }
