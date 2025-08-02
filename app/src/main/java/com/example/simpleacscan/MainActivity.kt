@@ -1,7 +1,12 @@
 package com.example.simpleacscan
 
 import android.os.Bundle
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.method.LinkMovementMethod
+import android.text.style.ClickableSpan
 import android.util.Log
+import android.view.View
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import kotlinx.coroutines.*
@@ -13,6 +18,8 @@ import javax.xml.parsers.DocumentBuilderFactory
 import org.w3c.dom.Document
 import org.w3c.dom.Node
 import org.xml.sax.InputSource
+import android.content.Intent
+import android.net.Uri
 
 class MainActivity : ComponentActivity() {
     private val TAG = "ACScan"
@@ -27,6 +34,7 @@ class MainActivity : ComponentActivity() {
         outputTv.setTextIsSelectable(true)
         outputTv.typeface = android.graphics.Typeface.MONOSPACE
         outputTv.textSize = 12f
+        outputTv.movementMethod = LinkMovementMethod.getInstance() // 啟用超連結
         setContentView(outputTv)
 
         CoroutineScope(Dispatchers.IO).launch {
@@ -52,11 +60,17 @@ class MainActivity : ComponentActivity() {
                     if (isPortOpen(ip, port, timeoutMillis)) {
                         val info = fetchDeviceInfo(ip)
                         val entry = buildString {
-                            append("=== $ip ===\n")
+                            append("=== ")
+                            append(createHyperlink(ip, "http://$ip:$port$resource"))
+                            append(" ===\n")
                             append("  modelName: ${info["modelName"]}\n")
                             append("  modelNumber: ${info["modelNumber"]}\n")
                             append("  modelDescription: ${info["modelDescription"]}\n")
                             append("  UDN: ${info["UDN"]}\n")
+                            append("  Status: ${info.getOrDefault("status", "XML 已讀取")}\n")
+                            if (info.containsKey("error")) {
+                                append("  Error: ${info["error"]}\n")
+                            }
                         }
                         append(entry)
                         synchronized(results) { results.add(ip) }
@@ -93,7 +107,8 @@ class MainActivity : ComponentActivity() {
             "modelName" to "-",
             "modelNumber" to "-",
             "modelDescription" to "-",
-            "UDN" to "-"
+            "UDN" to "-",
+            "status" to "XML 已讀取"
         )
         try {
             val url = URL("http://$ip:$port$resource")
@@ -107,26 +122,37 @@ class MainActivity : ComponentActivity() {
             Log.d(TAG, "Response code for $ip: $responseCode")
             
             if (responseCode != 200) {
-                Log.e(TAG, "檔案找不到 for $ip: HTTP $responseCode")
-                result["error"] = "檔案找不到: HTTP $responseCode"
+                Log.e(TAG, "無法讀取 device.xml for $ip: HTTP $responseCode")
+                result["status"] = "無法讀取 device.xml"
+                result["error"] = "HTTP $responseCode"
                 return result
             }
 
             // 讀取並記錄 XML 內容
             val body = conn.inputStream.bufferedReader().use(BufferedReader::readText)
             if (body.isEmpty()) {
-                Log.e(TAG, "檔案找不到 for $ip: Empty response")
-                result["error"] = "檔案找不到: Empty response"
+                Log.e(TAG, "無法讀取 device.xml for $ip: Empty response")
+                result["status"] = "無法讀取 device.xml"
+                result["error"] = "Empty response"
                 return result
             }
             Log.d(TAG, "Response body for $ip:\n$body")
             
-            // 解析 XML
+            // 驗證 XML 是否可解析
             val factory = DocumentBuilderFactory.newInstance()
             factory.isNamespaceAware = true
             val builder = factory.newDocumentBuilder()
-            val doc = builder.parse(InputSource(StringReader(body)))
-            doc.documentElement.normalize()
+            val doc: Document
+            try {
+                doc = builder.parse(InputSource(StringReader(body)))
+                doc.documentElement.normalize()
+                Log.d(TAG, "XML parsed successfully for $ip")
+            } catch (e: Exception) {
+                Log.e(TAG, "XML parsing failed for $ip: ${e.message}")
+                result["status"] = "無法讀取 device.xml"
+                result["error"] = "XML parsing failed: ${e.message}"
+                return result
+            }
 
             // 查找 <device> 節點
             val deviceNodeList = doc.getElementsByTagNameNS("urn:schemas-upnp-org:device-1-0", "device")
@@ -148,38 +174,20 @@ class MainActivity : ComponentActivity() {
                 Log.d(TAG, "All tags in <device> node for $ip: ${deviceTags.keys.joinToString(", ")}")
 
                 // 提取標籤值
-                fun getTagValue(tag: String): String {
-                    // 嘗試命名空間
-                    var nodeList = doc.getElementsByTagNameNS("urn:schemas-upnp-org:device-1-0", tag)
-                    if (nodeList.length > 0) {
-                        val value = nodeList.item(0).textContent?.trim()
-                        Log.d(TAG, "Found $tag with namespace for $ip: $value")
-                        return value ?: "-"
-                    }
-                    // 回退到不帶命名空間
-                    nodeList = doc.getElementsByTagName(tag)
-                    if (nodeList.length > 0) {
-                        val value = nodeList.item(0).textContent?.trim()
-                        Log.d(TAG, "Found $tag without namespace for $ip: $value")
-                        return value ?: "-"
-                    }
-                    // 從 deviceTags 查找
-                    val value = deviceTags[tag]
+                val tags = listOf("modelName", "modelNumber", "modelDescription", "UDN")
+                for (tag in tags) {
+                    val value = deviceTags.entries.find { it.key.endsWith(tag) }?.value
                     if (value != null) {
+                        result[tag] = value
                         Log.d(TAG, "Found $tag in deviceTags for $ip: $value")
-                        return value
+                    } else {
+                        Log.d(TAG, "Tag $tag not found in deviceTags for $ip")
                     }
-                    Log.d(TAG, "Tag $tag not found for $ip")
-                    return "-"
                 }
-
-                result["modelName"] = getTagValue("modelName")
-                result["modelNumber"] = getTagValue("modelNumber")
-                result["modelDescription"] = getTagValue("modelDescription")
-                result["UDN"] = getTagValue("UDN")
                 Log.d(TAG, "Parsed info for $ip: $result")
             } else {
                 Log.e(TAG, "No <device> node found in XML for $ip")
+                result["status"] = "無法讀取 device.xml"
                 result["error"] = "No <device> node found"
             }
 
@@ -197,6 +205,7 @@ class MainActivity : ComponentActivity() {
             Log.d(TAG, "All tags in XML for $ip: ${allTags.joinToString(", ")}")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to fetch device info for $ip: ${e.message}")
+            result["status"] = "無法讀取 device.xml"
             result["error"] = "Failed to fetch: ${e.message}"
         }
         return result
@@ -207,6 +216,21 @@ class MainActivity : ComponentActivity() {
         runOnUiThread {
             outputTv.append(text)
         }
+    }
+
+    private fun createHyperlink(text: String, url: String): SpannableString {
+        val spannable = SpannableString(text)
+        spannable.setSpan(object : ClickableSpan() {
+            override fun onClick(widget: View) {
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                    widget.context.startActivity(intent)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to open URL $url: ${e.message}")
+                }
+            }
+        }, 0, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        return spannable
     }
 
     private fun getLocalBaseIpPrefix(): String? {
