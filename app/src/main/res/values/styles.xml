@@ -1,0 +1,5 @@
+<resources>
+    <style name="Theme.SimpleACScan" parent="Theme.AppCompat.Light.NoActionBar">
+        <!-- 自定义主题可在这里扩展 -->
+    </style>
+</resources>
