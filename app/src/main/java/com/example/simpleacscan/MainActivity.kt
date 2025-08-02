@@ -83,7 +83,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // 自訂：加彩色、emoji 等顯示
+    // 彩色＋emoji 輸出
     private suspend fun scanNetwork(base: String): List<String> {
         val results = mutableListOf<String>()
         val sem = Semaphore(100)
@@ -94,19 +94,19 @@ class MainActivity : ComponentActivity() {
                 try {
                     if (isPortOpen(ip, port, timeoutMillis)) {
                         val info = fetchDeviceInfo(ip)
-                        // Emoji: 電腦(💻) + 綠字
+                        // 綠色💻顯示IP, 其他資訊白色, 有錯用紅色
                         val header = makeColoredSpan("💻 $ip", Color.GREEN, bold = true)
                         val details = buildString {
                             append("\n  型號: ${info["modelName"]}\n")
                             append("  機號: ${info["modelNumber"]}\n")
                             append("  描述: ${info["modelDescription"]}\n")
                             append("  UDN: ${info["UDN"]}\n")
-                            if (info.containsKey("error")) {
-                                append("  ⚠️ 錯誤: ${info["error"]}\n")
-                            }
                         }
                         append(header)
                         append(details)
+                        if (info.containsKey("error")) {
+                            append(makeColoredSpan("  ⚠️ 錯誤: ${info["error"]}\n", Color.RED, bold = true))
+                        }
                         append("\n\n")
                         synchronized(results) { results.add(ip) }
                     }
@@ -214,7 +214,7 @@ class MainActivity : ComponentActivity() {
         return result
     }
 
-    // 可以 append String 或 SpannableString
+    // append 可傳字串或 SpannableString
     private fun append(obj: CharSequence) {
         runOnUiThread {
             outputTv.append(obj)
