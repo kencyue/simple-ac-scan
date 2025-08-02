@@ -9,6 +9,7 @@ import android.text.method.LinkMovementMethod
 import android.text.style.ClickableSpan
 import android.text.style.ForegroundColorSpan
 import android.text.style.LeadingMarginSpan
+import android.text.style.RelativeSizeSpan
 import android.text.style.StyleSpan
 import android.util.Log
 import android.view.View
@@ -61,19 +62,19 @@ class MainActivity : ComponentActivity() {
     private fun showTipAndScan() {
         runOnUiThread {
             outputTv.text = ""
-            append(scanningTip, Color.YELLOW)
+            appendLarge(scanningTip, Color.YELLOW)
             isScanning = true
         }
         CoroutineScope(Dispatchers.IO).launch {
             val base = getLocalBaseIpPrefix()
             if (base == null) {
-                append("找不到可用內網 IP\n", Color.RED)
+                appendLarge("找不到可用內網 IP\n", Color.RED)
                 endScan()
                 return@launch
             }
-            append("掃描 $base.1-254\n\n", Color.GREEN)
+            appendLarge("掃描 $base.1-254\n\n", Color.GREEN)
             val found = scanNetwork(base)
-            append("\n完成，找到 ${found.size} 台設備\n", Color.MAGENTA)
+            appendLarge("\n完成，找到 ${found.size} 台設備\n", Color.MAGENTA)
             endScan()
         }
     }
@@ -82,7 +83,7 @@ class MainActivity : ComponentActivity() {
         runOnUiThread {
             isScanning = false
             if (!outputTv.text.toString().startsWith(scanTip)) {
-                append("\n$scanTip", Color.LTGRAY)
+                appendLarge("\n$scanTip", Color.LTGRAY)
             }
         }
     }
@@ -129,6 +130,14 @@ class MainActivity : ComponentActivity() {
                             s.setSpan(ForegroundColorSpan(Color.WHITE), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                         })
 
+                        // UDN (提前)
+                        entryBuilder.append(SpannableString("  UDN: ").also { s ->
+                            s.setSpan(ForegroundColorSpan(Color.LTGRAY), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        })
+                        entryBuilder.append(SpannableString("${info["UDN"]}\n").also { s ->
+                            s.setSpan(ForegroundColorSpan(Color.WHITE), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        })
+
                         // modelDescription：長度過長換行後對齊（hanging indent）
                         val prefixDesc = "  modelDescription: "
                         val descValue = info["modelDescription"] ?: "-"
@@ -142,14 +151,6 @@ class MainActivity : ComponentActivity() {
                         val prefixWidth = runCatching { outputTv.paint.measureText(prefixDesc).toInt() }.getOrDefault(0)
                         descSp.setSpan(LeadingMarginSpan.Standard(0, prefixWidth), 0, descSp.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                         entryBuilder.append(descSp)
-
-                        // UDN
-                        entryBuilder.append(SpannableString("  UDN: ").also { s ->
-                            s.setSpan(ForegroundColorSpan(Color.LTGRAY), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                        })
-                        entryBuilder.append(SpannableString("${info["UDN"]}\n").also { s ->
-                            s.setSpan(ForegroundColorSpan(Color.WHITE), 0, s.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                        })
 
                         if (info.containsKey("error")) {
                             entryBuilder.append(SpannableString("  Error: ").also { s ->
@@ -306,6 +307,13 @@ class MainActivity : ComponentActivity() {
         append(spannable)
     }
 
+    private fun appendLarge(text: String, color: Int) {
+        val spannable = SpannableString(text)
+        spannable.setSpan(ForegroundColorSpan(color), 0, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        spannable.setSpan(RelativeSizeSpan(1.4f), 0, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        append(spannable)
+    }
+
     private fun createHyperlink(text: String, url: String): SpannableString {
         val spannable = SpannableString(text)
         spannable.setSpan(object : ClickableSpan() {
@@ -346,7 +354,6 @@ class MainActivity : ComponentActivity() {
                 ds.typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
             }
         }, 0, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        // 也加粗字體本身（部分系統可能不從 updateDrawState fully apply）
         spannable.setSpan(StyleSpan(android.graphics.Typeface.BOLD), 0, spannable.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         return spannable
     }
