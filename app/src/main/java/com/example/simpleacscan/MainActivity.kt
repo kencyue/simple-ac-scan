@@ -46,7 +46,7 @@ class MainActivity : AppCompatActivity() {
             startScan(baseIp, port)
         }
 
-        // 初次自動掃一次（可選）
+        // 預設自動掃一次
         startScan(baseIp, port)
     }
 
@@ -68,7 +68,8 @@ class MainActivity : AppCompatActivity() {
                     if (info.error != null) {
                         liveResults.append("error: ${info.error}\n")
                     }
-                    liveResults.append("\n")
+                    liveResults.append("raw:\n${info.raw.take(500)}\n") // 限制顯示長度
+                    liveResults.append("------------------------\n")
                     withContext(Dispatchers.Main) {
                         outputText.text = liveResults.toString()
                     }
@@ -82,18 +83,18 @@ class MainActivity : AppCompatActivity() {
 
     private suspend fun scanNetwork(baseIp: String, port: Int): List<String> = coroutineScope {
         val result = mutableListOf<String>()
-        val semaphore = Semaphore(50) // 限制併發不爆掉
+        val semaphore = Semaphore(50)
         val jobs = (1..254).map { i ->
             launch(Dispatchers.IO) {
                 semaphore.withPermit {
                     val ip = "$baseIp.$i"
                     try {
                         Socket().use { socket ->
-                            socket.connect(InetSocketAddress(ip, port), 200) // 200ms timeout
+                            socket.connect(InetSocketAddress(ip, port), 200)
                             synchronized(result) { result.add(ip) }
                         }
                     } catch (_: Exception) {
-                        // 連不到就略過
+                        // ignore
                     }
                 }
             }
@@ -130,8 +131,7 @@ class MainActivity : AppCompatActivity() {
                         result[field] = text
                     }
                 }
-            } catch (e: Exception) {
-                // fallback 用 regex
+            } catch (_: Exception) {
                 for (field in fields) {
                     val regex = Regex("<$field>(.*?)</$field>", RegexOption.DOT_MATCHES_ALL)
                     regex.find(raw)?.groups?.get(1)?.let {
@@ -160,7 +160,7 @@ class MainActivity : AppCompatActivity() {
                 if (!iface.isUp || iface.isLoopback) continue
                 for (addr in iface.inetAddresses) {
                     if (addr is java.net.Inet4Address && !addr.isLoopbackAddress) {
-                        val ip = addr.hostAddress // e.g., "192.168.31.56"
+                        val ip = addr.hostAddress
                         val parts = ip.split(".")
                         if (parts.size == 4) {
                             return "${parts[0]}.${parts[1]}.${parts[2]}"
@@ -170,6 +170,6 @@ class MainActivity : AppCompatActivity() {
             }
         } catch (_: Exception) {
         }
-        return "192.168.1" // 預設 fallback
+        return "192.168.1"
     }
 }
