@@ -87,6 +87,7 @@ class MainActivity : ComponentActivity() {
                 try {
                     if (isPortOpen(ip, port, timeoutMillis)) {
                         val info = fetchDeviceInfo(ip)
+                        // Status行拿掉，每個結果間多一個換行
                         val entry = buildString {
                             append("=== ")
                             append(createHyperlink(ip, "http://$ip:$port$resource"))
@@ -95,10 +96,10 @@ class MainActivity : ComponentActivity() {
                             append("  modelNumber: ${info["modelNumber"]}\n")
                             append("  modelDescription: ${info["modelDescription"]}\n")
                             append("  UDN: ${info["UDN"]}\n")
-                            append("  Status: ${info.getOrDefault("status", "設備資料已讀取")}\n")
                             if (info.containsKey("error")) {
                                 append("  Error: ${info["error"]}\n")
                             }
+                            append("\n") // 讓每台設備分隔
                         }
                         append(entry)
                         synchronized(results) { results.add(ip) }
