@@ -1,14 +1,14 @@
 plugins {
     id 'com.android.application'
-    id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.android' // 如果你沒有用 Kotlin 可以拿掉這行和 kotlinOptions 區塊
 }
 
 android {
-    namespace 'com.example.simpleacscan' // 改成你的 package/namespace
+    namespace 'com.example.acscan' // 跟 applicationId 對應
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.example.simpleacscan" // 改成你的 ID
+        applicationId "com.example.acscan"
         minSdk 24
         targetSdk 34
         versionCode 1
@@ -17,7 +17,8 @@ android {
 
     buildTypes {
         debug {
-            // debug build 不啟用混淆
+            // debug 不縮減
+            minifyEnabled false
         }
         release {
             minifyEnabled false
@@ -29,14 +30,14 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+
     kotlinOptions {
-        jvmTarget = "17"
+        jvmTarget = '17'
     }
 }
 
 dependencies {
     implementation 'androidx.core:core-ktx:1.12.0'
-    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'com.google.android.material:material:1.9.0'
-    // 其他你原本需要的依賴加在這裡
 }
