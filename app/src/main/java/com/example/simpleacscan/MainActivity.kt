@@ -1,11 +1,14 @@
 package com.example.simpleacscan
 
+import android.graphics.Color
+import android.graphics.Typeface
 import android.os.Bundle
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.method.LinkMovementMethod
 import android.text.style.ClickableSpan
-import android.util.Log
+import android.text.style.ForegroundColorSpan
+import android.text.style.StyleSpan
 import android.view.View
 import android.widget.TextView
 import androidx.activity.ComponentActivity
@@ -20,6 +23,7 @@ import org.w3c.dom.Node
 import org.xml.sax.InputSource
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 
 class MainActivity : ComponentActivity() {
     private val TAG = "ACScan"
@@ -35,9 +39,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         outputTv = TextView(this)
         outputTv.setTextIsSelectable(true)
-        outputTv.typeface = android.graphics.Typeface.MONOSPACE
-        outputTv.textSize = 12f
+        outputTv.typeface = Typeface.MONOSPACE
+        outputTv.textSize = 16f
         outputTv.movementMethod = LinkMovementMethod.getInstance()
+        outputTv.setBackgroundColor(Color.BLACK)         // 黑色背景
+        outputTv.setTextColor(Color.WHITE)               // 預設白色字
         setContentView(outputTv)
 
         showTipAndScan()
@@ -57,13 +63,13 @@ class MainActivity : ComponentActivity() {
         CoroutineScope(Dispatchers.IO).launch {
             val base = getLocalBaseIpPrefix()
             if (base == null) {
-                append("找不到可用內網 IP\n")
+                append(makeColoredSpan("找不到可用內網 IP\n", Color.RED))
                 endScan()
                 return@launch
             }
-            append("掃描 $base.1-254\n\n")
+            append(makeColoredSpan("掃描 $base.1-254\n\n", Color.CYAN))
             val found = scanNetwork(base)
-            append("\n完成，找到 ${found.size} 台設備\n")
+            append(makeColoredSpan("\n完成，找到 ${found.size} 台設備\n", Color.GREEN))
             endScan()
         }
     }
@@ -72,11 +78,12 @@ class MainActivity : ComponentActivity() {
         runOnUiThread {
             isScanning = false
             if (!outputTv.text.startsWith(scanTip)) {
-                outputTv.append("\n$scanTip")
+                outputTv.append(scanTip)
             }
         }
     }
 
+    // 自訂：加彩色、emoji 等顯示
     private suspend fun scanNetwork(base: String): List<String> {
         val results = mutableListOf<String>()
         val sem = Semaphore(100)
@@ -87,24 +94,21 @@ class MainActivity : ComponentActivity() {
                 try {
                     if (isPortOpen(ip, port, timeoutMillis)) {
                         val info = fetchDeviceInfo(ip)
-                        // Status行拿掉，每個結果間多一個換行
-                        val entry = buildString {
-                            append("=== ")
-                            append(createHyperlink(ip, "http://$ip:$port$resource"))
-                            append(" ===\n")
-                            append("  modelName: ${info["modelName"]}\n")
-                            append("  modelNumber: ${info["modelNumber"]}\n")
-                            append("  modelDescription: ${info["modelDescription"]}\n")
+                        // Emoji: 電腦(💻) + 綠字
+                        val header = makeColoredSpan("💻 $ip", Color.GREEN, bold = true)
+                        val details = buildString {
+                            append("\n  型號: ${info["modelName"]}\n")
+                            append("  機號: ${info["modelNumber"]}\n")
+                            append("  描述: ${info["modelDescription"]}\n")
                             append("  UDN: ${info["UDN"]}\n")
                             if (info.containsKey("error")) {
-                                append("  Error: ${info["error"]}\n")
+                                append("  ⚠️ 錯誤: ${info["error"]}\n")
                             }
-                            append("\n") // 讓每台設備分隔
                         }
-                        append(entry)
+                        append(header)
+                        append(details)
+                        append("\n\n")
                         synchronized(results) { results.add(ip) }
-                    } else {
-                        Log.d(TAG, "Port $port is closed on $ip")
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Error scanning $ip: ${e.message}")
@@ -117,16 +121,22 @@ class MainActivity : ComponentActivity() {
         return results
     }
 
+    // 彩色span+可加粗
+    private fun makeColoredSpan(text: String, color: Int, bold: Boolean = false): SpannableString {
+        val ss = SpannableString(text)
+        ss.setSpan(ForegroundColorSpan(color), 0, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        if (bold) ss.setSpan(StyleSpan(Typeface.BOLD), 0, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        return ss
+    }
+
     private fun isPortOpen(ip: String, port: Int, timeoutMs: Int): Boolean {
         return try {
             Socket().use { sock ->
                 sock.soTimeout = timeoutMs
                 sock.connect(InetSocketAddress(ip, port), timeoutMs)
-                Log.d(TAG, "Port $port is open on $ip")
                 true
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Port check failed for $ip:$port: ${e.message}")
             false
         }
     }
@@ -145,13 +155,9 @@ class MainActivity : ComponentActivity() {
             conn.connectTimeout = 3000
             conn.readTimeout = 3000
             conn.requestMethod = "GET"
-            Log.d(TAG, "Connecting to $url")
             conn.connect()
             val responseCode = conn.responseCode
-            Log.d(TAG, "Response code for $ip: $responseCode")
-
             if (responseCode != 200) {
-                Log.e(TAG, "無法讀取設備資料 for $ip: HTTP $responseCode")
                 result["status"] = "無法讀取設備資料"
                 result["error"] = "HTTP $responseCode"
                 return result
@@ -159,12 +165,10 @@ class MainActivity : ComponentActivity() {
 
             val body = conn.inputStream.bufferedReader().use(BufferedReader::readText)
             if (body.isEmpty()) {
-                Log.e(TAG, "無法讀取設備資料 for $ip: Empty response")
                 result["status"] = "無法讀取設備資料"
                 result["error"] = "Empty response"
                 return result
             }
-            Log.d(TAG, "Response body for $ip:\n$body")
 
             val factory = DocumentBuilderFactory.newInstance()
             factory.isNamespaceAware = true
@@ -173,16 +177,13 @@ class MainActivity : ComponentActivity() {
             try {
                 doc = builder.parse(InputSource(StringReader(body)))
                 doc.documentElement.normalize()
-                Log.d(TAG, "XML parsed successfully for $ip")
             } catch (e: Exception) {
-                Log.e(TAG, "XML parsing failed for $ip: ${e.message}")
                 result["status"] = "無法讀取設備資料"
                 result["error"] = "XML parsing failed: ${e.message}"
                 return result
             }
 
             val deviceNodeList = doc.getElementsByTagNameNS("urn:schemas-upnp-org:device-1-0", "device")
-            Log.d(TAG, "Device nodes found for $ip: ${deviceNodeList.length}")
             if (deviceNodeList.length > 0) {
                 val deviceNode = deviceNodeList.item(0)
                 val deviceTags = mutableMapOf<String, String>()
@@ -193,67 +194,31 @@ class MainActivity : ComponentActivity() {
                         val tagName = child.nodeName
                         val tagValue = child.textContent?.trim() ?: ""
                         deviceTags[tagName] = tagValue
-                        Log.d(TAG, "Device tag for $ip: $tagName = $tagValue")
                     }
                 }
-                Log.d(TAG, "All tags in <device> node for $ip: ${deviceTags.keys.joinToString(", ")}")
                 val tags = listOf("modelName", "modelNumber", "modelDescription", "UDN")
                 for (tag in tags) {
                     val value = deviceTags.entries.find { it.key.endsWith(tag) }?.value
                     if (value != null) {
                         result[tag] = value
-                        Log.d(TAG, "Found $tag in deviceTags for $ip: $value")
-                    } else {
-                        Log.d(TAG, "Tag $tag not found in deviceTags for $ip")
                     }
                 }
-                Log.d(TAG, "Parsed info for $ip: $result")
             } else {
-                Log.e(TAG, "No <device> node found in XML for $ip")
                 result["status"] = "無法讀取設備資料"
                 result["error"] = "No <device> node found"
             }
-
-            val allTags = mutableSetOf<String>()
-            fun traverseNodes(node: Node) {
-                if (node.nodeType == Node.ELEMENT_NODE) {
-                    allTags.add(node.nodeName)
-                    for (i in 0 until node.childNodes.length) {
-                        traverseNodes(node.childNodes.item(i))
-                    }
-                }
-            }
-            traverseNodes(doc.documentElement)
-            Log.d(TAG, "All tags in XML for $ip: ${allTags.joinToString(", ")}")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to fetch device info for $ip: ${e.message}")
             result["status"] = "無法讀取設備資料"
             result["error"] = "Failed to fetch: ${e.message}"
         }
         return result
     }
 
-    private fun append(text: String) {
-        Log.i(TAG, text)
+    // 可以 append String 或 SpannableString
+    private fun append(obj: CharSequence) {
         runOnUiThread {
-            val spannable = SpannableString.valueOf(text)
-            outputTv.append(spannable)
+            outputTv.append(obj)
         }
-    }
-
-    private fun createHyperlink(text: String, url: String): SpannableString {
-        val spannable = SpannableString(text)
-        spannable.setSpan(object : ClickableSpan() {
-            override fun onClick(widget: View) {
-                try {
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                    widget.context.startActivity(intent)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to open URL $url: ${e.message}")
-                }
-            }
-        }, 0, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        return spannable
     }
 
     private fun getLocalBaseIpPrefix(): String? {
@@ -271,7 +236,6 @@ class MainActivity : ComponentActivity() {
                             (ip.startsWith("172.") && ip.split(".")[1].toIntOrNull() in 16..31)) {
                             val parts = ip.split(".")
                             if (parts.size >= 3) {
-                                Log.d(TAG, "Found local IP prefix: ${parts[0]}.${parts[1]}.${parts[2]}")
                                 return "${parts[0]}.${parts[1]}.${parts[2]}"
                             }
                         }
@@ -279,7 +243,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to get local IP prefix: ${e.message}")
         }
         return null
     }
